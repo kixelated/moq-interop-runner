@@ -1,0 +1,63 @@
+# Docker Compose for running MoQT interop tests
+#
+# Usage (via Makefile - recommended):
+#   make test                                    # Use default images
+#   make test RELAY_IMAGE=other-relay:latest    # Use different relay
+#
+# Direct usage:
+#   RELAY_IMAGE=moq-relay-ietf:latest CLIENT_IMAGE=moq-test-client:latest \
+#     docker-compose -f docker-compose.test.yml up --abort-on-container-exit
+#
+# Certs convention (following QUIC interop runner):
+#   - Generate certs with: ./generate-certs.sh ./certs
+#   - Certs mounted at /certs/cert.pem and /certs/priv.key
+
+services:
+  relay:
+    image: ${RELAY_IMAGE:-moq-relay-ietf:latest}
+    # Run as non-root user - use env vars to allow override for different host UIDs
+    user: "${DOCKER_USER:-1000}:${DOCKER_GROUP:-65534}"
+    ports:
+      - "4443:4443/udp"
+    volumes:
+      - ./certs:/certs:ro
+      - ./mlog/relay:/mlog
+    environment:
+      - MOQT_ROLE=relay
+      - MOQT_PORT=4443
+    healthcheck:
+      # Use ss with fallback, and support configurable port via MOQT_PORT
+      test: ["CMD", "sh", "-c", "ss -uln 2>/dev/null | grep -q ':${MOQT_PORT:-4443}' || netstat -uln 2>/dev/null | grep -q ':${MOQT_PORT:-4443}' || exit 1"]
+      interval: 2s
+      timeout: 5s
+      retries: 10
+      start_period: 5s
+    # Resource limits to prevent runaway containers
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: '1.0'
+
+  test-client:
+    image: ${CLIENT_IMAGE:-moq-test-client:latest}
+    # Run as non-root user - use env vars to allow override for different host UIDs
+    user: "${DOCKER_USER:-1000}:${DOCKER_GROUP:-65534}"
+    depends_on:
+      relay:
+        condition: service_healthy
+    environment:
+      - RELAY_URL=https://relay:4443
+      # TLS verification disabled for self-signed test certs
+      # In production, use proper certificates and set to 0
+      - TLS_DISABLE_VERIFY=1
+    volumes:
+      - ./mlog/client:/mlog
+    # Resource limits
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+          cpus: '0.5'
+    # Test client exits after tests complete
+    # Use --abort-on-container-exit to stop relay when tests finish

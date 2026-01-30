@@ -1,0 +1,19 @@
+# CA certificate for corporate proxy (copied during build)
+extra-ca.pem
+
+# Generated certificates
+certs/
+
+# Test results
+results/
+
+# mlog output
+mlog/
+
+# Builds framework - cloned source repos and build artifacts
+builds/*/.sources/
+builds/*/.last-build.json
+
+# Extra CA certificates for TLS inspection (environment-specific)
+extra-ca.pem
+builds/*/extra-ca.pem

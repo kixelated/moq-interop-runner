@@ -1,0 +1,178 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "MoQT Implementations Registry",
+  "description": "Configuration file defining MoQT implementations available for interop testing",
+  "type": "object",
+  "required": ["version", "implementations"],
+  "properties": {
+    "$schema": {
+      "type": "string",
+      "description": "JSON Schema reference"
+    },
+    "version": {
+      "type": "string",
+      "description": "Schema version",
+      "pattern": "^\\d+\\.\\d+$"
+    },
+    "description": {
+      "type": "string"
+    },
+    "current_target": {
+      "type": "string",
+      "description": "Current interop target draft version (e.g., draft-14)",
+      "pattern": "^draft-\\d+$"
+    },
+    "implementations": {
+      "type": "object",
+      "description": "Map of implementation ID to implementation details",
+      "propertyNames": {
+        "pattern": "^[a-z][a-z0-9-]*$"
+      },
+      "additionalProperties": {
+        "$ref": "#/definitions/implementation"
+      }
+    },
+    "_comment_how_to_add": {
+      "type": "array",
+      "description": "Instructions for adding new implementations",
+      "items": { "type": "string" }
+    }
+  },
+  "definitions": {
+    "implementation": {
+      "type": "object",
+      "required": ["name", "roles"],
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "Human-readable name of the implementation"
+        },
+        "organization": {
+          "type": "string",
+          "description": "Organization or maintainer"
+        },
+        "repository": {
+          "type": "string",
+          "format": "uri",
+          "description": "Source code repository URL"
+        },
+        "draft_versions": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^draft-\\d+$"
+          },
+          "minItems": 1,
+          "description": "Supported MoQ Transport draft versions (e.g., ['draft-14'])"
+        },
+        "roles": {
+          "type": "object",
+          "description": "Roles this implementation can fulfill",
+          "properties": {
+            "relay": { "$ref": "#/definitions/role_config" },
+            "client": { "$ref": "#/definitions/role_config" },
+            "publisher": { "$ref": "#/definitions/role_config" },
+            "subscriber": { "$ref": "#/definitions/role_config" }
+          },
+          "additionalProperties": false
+        },
+        "notes": {
+          "type": "string",
+          "description": "Additional notes about this implementation"
+        }
+      },
+      "additionalProperties": false
+    },
+    "role_config": {
+      "type": "object",
+      "description": "Configuration for running this implementation in a specific role",
+      "properties": {
+        "docker": {
+          "$ref": "#/definitions/docker_config"
+        },
+        "remote": {
+          "type": "array",
+          "description": "Array of remote endpoints (supports multiple transports)",
+          "items": {
+            "$ref": "#/definitions/remote_endpoint"
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "docker_config": {
+      "type": "object",
+      "description": "Docker image configuration",
+      "required": ["image"],
+      "properties": {
+        "image": {
+          "type": "string",
+          "description": "Docker image name:tag"
+        },
+        "build": {
+          "type": "object",
+          "description": "Build configuration if image needs to be built locally",
+          "properties": {
+            "dockerfile": {
+              "type": "string",
+              "description": "Path to Dockerfile relative to docker/ directory"
+            },
+            "context": {
+              "type": "string",
+              "description": "Build context path relative to docker/ directory"
+            }
+          }
+        },
+        "upstream_image": {
+          "type": "string",
+          "description": "Original upstream image if this is an adapter"
+        },
+        "env": {
+          "type": "object",
+          "description": "Environment variables to set",
+          "additionalProperties": { "type": "string" }
+        },
+        "notes": {
+          "type": "string",
+          "description": "Additional notes about this Docker configuration"
+        }
+      }
+    },
+    "remote_endpoint": {
+      "type": "object",
+      "description": "Remote endpoint configuration for testing against public instances",
+      "required": ["url", "transport"],
+      "properties": {
+        "url": {
+          "type": "string",
+          "pattern": "^(https://|moqt://)[a-zA-Z0-9][a-zA-Z0-9.-]*(:[0-9]+)?(/.*)?$",
+          "description": "Endpoint URL (must use https:// or moqt:// with valid host)"
+        },
+        "transport": {
+          "type": "string",
+          "enum": ["quic", "webtransport"],
+          "description": "Transport type: 'quic' (raw QUIC, moqt://) or 'webtransport' (HTTP/3, https://)"
+        },
+        "status": {
+          "type": "string",
+          "enum": ["active", "inactive", "untested"],
+          "description": "Endpoint availability: 'active' (running, testable), 'inactive' (not currently available), 'untested' (unknown)",
+          "default": "active"
+        },
+        "draft_version": {
+          "type": "string",
+          "description": "Specific draft version this endpoint targets (if different from implementation default)"
+        },
+        "tls_disable_verify": {
+          "type": "boolean",
+          "description": "Set true if endpoint uses self-signed certificate",
+          "default": false
+        },
+        "notes": {
+          "type": "string",
+          "description": "Additional notes about this endpoint"
+        }
+      }
+    }
+  }
+}
