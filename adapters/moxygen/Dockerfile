@@ -16,6 +16,19 @@
 
 FROM ghcr.io/facebookexperimental/moqrelay:latest-amd64
 
+# Fix for running as non-root user (e.g., via docker-compose user: directive)
+#
+# Facebook's getdeps.py uses different scratch paths based on UID:
+#   - root (UID 0):  /tmp/fbcode_builder_getdeps-...-root/
+#   - non-root:      /tmp/fbcode_builder_getdeps-.../
+#
+# Since the upstream image was built as root, binaries are at the -root path.
+# Create a symlink so non-root users can find them via getdeps.py.
+RUN ROOT_DIR=$(ls -d /tmp/fbcode_builder_getdeps-*-root 2>/dev/null | head -1) && \
+    if [ -n "$ROOT_DIR" ]; then \
+        ln -s "$ROOT_DIR" "${ROOT_DIR%-root}"; \
+    fi
+
 # Map our /certs convention to moxygen's expected env vars
 # Upstream default port is 4433, we use 4443 for consistency with other implementations
 ENV MOQ_PORT=4443
@@ -26,6 +39,12 @@ ENV MOQ_ENDPOINT=/
 ENV MOQ_LOG_LEVEL=DBG2
 
 EXPOSE 4443/udp
+
+# Custom healthcheck since the upstream image doesn't have ss/netstat installed.
+# The relay binds to IPv6, so we check /proc/net/udp6 for port 4443 (0x115B in hex).
+# This overrides the healthcheck from docker-compose.test.yml for this image.
+HEALTHCHECK --interval=2s --timeout=5s --start-period=5s --retries=10 \
+    CMD grep -qi ":115B" /proc/net/udp6 || grep -qi ":115B" /proc/net/udp || exit 1
 
 # The upstream image's CMD uses these environment variables to start moqrelayserver
 # No custom entrypoint needed - the env var overrides are sufficient
