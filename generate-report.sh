@@ -173,6 +173,22 @@ generate_detail() {
     local PASSED=$(jq '[.runs[] | select(.status == "pass")] | length' "$SUMMARY_FILE")
     local FAILED=$(jq '[.runs[] | select(.status == "fail")] | length' "$SUMMARY_FILE")
 
+    # Classification counts (backward compat: compute from version vs target_version if absent)
+    local classify_expr='
+        .target_version as $tv |
+        ($tv | ltrimstr("draft-") | tonumber) as $tn |
+        [.runs[] |
+            (.classification // (
+                (.version | ltrimstr("draft-") | tonumber) as $vn |
+                if $vn == $tn then "at"
+                elif $vn > $tn then "ahead"
+                else "behind" end
+            ))
+        ]'
+    local AT_TARGET=$(jq "$classify_expr | map(select(. == \"at\")) | length" "$SUMMARY_FILE")
+    local AHEAD=$(jq "$classify_expr | map(select(. == \"ahead\")) | length" "$SUMMARY_FILE")
+    local BEHIND=$(jq "$classify_expr | map(select(. == \"behind\")) | length" "$SUMMARY_FILE")
+
     # Get unique clients and relays for matrix
     local CLIENTS=$(jq -r '[.runs[].client] | unique | .[]' "$SUMMARY_FILE")
     local RELAYS=$(jq -r '[.runs[].relay] | unique | .[]' "$SUMMARY_FILE")
@@ -206,6 +222,7 @@ generate_detail() {
         .meta { color: var(--muted); margin-bottom: 2rem; }
         .summary {
             display: flex;
+            flex-wrap: wrap;
             gap: 1rem;
             margin-bottom: 2rem;
         }
@@ -243,12 +260,33 @@ generate_detail() {
         .status.pass { background: rgba(34, 197, 94, 0.2); color: var(--pass); }
         .status.fail { background: rgba(239, 68, 68, 0.2); color: var(--fail); }
         .status.partial { background: rgba(251, 191, 36, 0.2); color: #fbbf24; }
+        .section-header td {
+            padding-top: 1.5rem;
+            font-weight: 600;
+            color: var(--muted);
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            font-size: 0.875rem;
+            border-bottom: none;
+        }
         code {
             background: var(--bg);
             padding: 0.125rem 0.375rem;
             border-radius: 0.25rem;
             font-size: 0.875rem;
         }
+        code.at { border-left: 3px solid var(--pass); }
+        code.ahead { border-left: 3px solid #60a5fa; }
+        code.behind { border-left: 3px solid #fbbf24; }
+        .classification-summary {
+            color: var(--muted);
+            font-size: 0.875rem;
+            margin-bottom: 2rem;
+        }
+        .classification-summary .count { font-weight: 600; }
+        .classification-summary .count.at { color: var(--pass); }
+        .classification-summary .count.ahead { color: #60a5fa; }
+        .classification-summary .count.behind { color: #fbbf24; }
         h2 { margin: 2rem 0 1rem; color: var(--muted); font-size: 1rem; text-transform: uppercase; letter-spacing: 0.05em; }
         a { color: #60a5fa; text-decoration: none; }
         a:hover { text-decoration: underline; }
@@ -265,12 +303,12 @@ generate_detail() {
 HEADER
 
     cat >> "$OUTPUT_FILE" << EOF
-        <p class="meta"><a href="../index.html">← All Runs</a> | Generated: $TIMESTAMP | Target: $TARGET_VERSION</p>
+        <p class="meta"><a href="../index.html">&larr; All Runs</a> | Generated: $TIMESTAMP | Interop target: <code>$TARGET_VERSION</code></p>
 
         <div class="summary">
             <div class="stat">
                 <div class="stat-value">$TOTAL</div>
-                <div class="stat-label">Total Tests</div>
+                <div class="stat-label">Total Runs</div>
             </div>
             <div class="stat">
                 <div class="stat-value pass">$PASSED</div>
@@ -281,6 +319,12 @@ HEADER
                 <div class="stat-label">Failed</div>
             </div>
         </div>
+        <p class="classification-summary">
+            Version breakdown:
+            <span class="count at">$AT_TARGET</span> at target &middot;
+            <span class="count ahead">$AHEAD</span> ahead &middot;
+            <span class="count behind">$BEHIND</span> behind
+        </p>
 
         <h2>Interop Matrix</h2>
         <table class="matrix">
@@ -300,30 +344,40 @@ EOF
             <tbody>
 MATRIXHEAD
 
-    # Matrix body (one row per client)
+    # Matrix body (one row per client, aggregating all endpoints per pair)
     for client in $CLIENTS; do
         echo "                <tr><td><strong>$client</strong></td>" >> "$OUTPUT_FILE"
         for relay in $RELAYS; do
-            # Find the mode for this client/relay pair to construct log filename
-            local mode=$(jq -r --arg c "$client" --arg r "$relay" \
-                '.runs[] | select(.client == $c and .relay == $r) | .mode' "$SUMMARY_FILE" | head -1)
-            
-            if [ -n "$mode" ] && [ "$mode" != "null" ]; then
+            # Get all modes for this (client, relay) pair
+            local modes
+            modes=$(jq -r --arg c "$client" --arg r "$relay" \
+                '.runs[] | select(.client == $c and .relay == $r) | .mode' "$SUMMARY_FILE")
+
+            if [ -z "$modes" ]; then
+                echo "                    <td><span class=\"cell none\">-</span></td>" >> "$OUTPUT_FILE"
+                continue
+            fi
+
+            # Aggregate TAP results across all endpoints for this pair
+            local agg_passed=0 agg_failed=0 agg_total=0 any_parsed=false
+            while IFS= read -r mode; do
+                [ -z "$mode" ] || [ "$mode" = "null" ] && continue
                 local log_file="$RESULTS_DIR/${client}_to_${relay}_${mode}.log"
                 if parse_tap_file "$log_file" && [ "$TAP_TOTAL" -gt 0 ]; then
-                    local passed=$TAP_PASSED
-                    local failed=$TAP_FAILED
-                    local total=$TAP_TOTAL
+                    agg_passed=$((agg_passed + TAP_PASSED))
+                    agg_failed=$((agg_failed + TAP_FAILED))
+                    agg_total=$((agg_total + TAP_TOTAL))
+                    any_parsed=true
+                fi
+            done <<< "$modes"
 
-                    if [ "$failed" -eq 0 ]; then
-                        echo "                    <td><span class=\"status pass\">$passed/$total</span></td>" >> "$OUTPUT_FILE"
-                    elif [ "$passed" -eq 0 ]; then
-                        echo "                    <td><span class=\"status fail\">$passed/$total</span></td>" >> "$OUTPUT_FILE"
-                    else
-                        echo "                    <td><span class=\"status partial\">$passed/$total</span></td>" >> "$OUTPUT_FILE"
-                    fi
+            if [ "$any_parsed" = true ] && [ "$agg_total" -gt 0 ]; then
+                if [ "$agg_failed" -eq 0 ]; then
+                    echo "                    <td><span class=\"status pass\">$agg_passed/$agg_total</span></td>" >> "$OUTPUT_FILE"
+                elif [ "$agg_passed" -eq 0 ]; then
+                    echo "                    <td><span class=\"status fail\">$agg_passed/$agg_total</span></td>" >> "$OUTPUT_FILE"
                 else
-                    echo "                    <td><span class=\"cell none\">-</span></td>" >> "$OUTPUT_FILE"
+                    echo "                    <td><span class=\"status partial\">$agg_passed/$agg_total</span></td>" >> "$OUTPUT_FILE"
                 fi
             else
                 echo "                    <td><span class=\"cell none\">-</span></td>" >> "$OUTPUT_FILE"
@@ -351,35 +405,80 @@ MATRIXHEAD
             <tbody>
 MATRIXFOOT
 
-    # Generate table rows with test counts parsed from log files
-    while IFS= read -r run; do
-        local client=$(echo "$run" | jq -r '.client')
-        local relay=$(echo "$run" | jq -r '.relay')
-        local version=$(echo "$run" | jq -r '.version')
-        local mode=$(echo "$run" | jq -r '.mode')
-        local status=$(echo "$run" | jq -r '.status')
-        
-        local log_file="$RESULTS_DIR/${client}_to_${relay}_${mode}.log"
-        local test_display
+    # Helper to emit rows for a given classification group
+    emit_detail_rows() {
+        local class="$1"
+        local label="$2"
+        local runs_json="$3"
 
-        if parse_tap_file "$log_file" && [ "$TAP_TOTAL" -gt 0 ]; then
-            local passed=$TAP_PASSED
-            local failed=$TAP_FAILED
-            local total=$TAP_TOTAL
+        # Get runs for this classification
+        local class_runs
+        class_runs=$(jq -c --arg cl "$class" \
+            'map(select(. == $cl)) | length' <<< "$runs_json")
+        [ "$class_runs" -eq 0 ] && return
 
-            if [ "$failed" -eq 0 ]; then
-                test_display="<span class=\"status pass\">$passed/$total</span>"
-            elif [ "$passed" -eq 0 ]; then
-                test_display="<span class=\"status fail\">$passed/$total</span>"
+        # Emit section header
+        echo "                <tr class=\"section-header\"><td colspan=\"6\">$label</td></tr>" >> "$OUTPUT_FILE"
+
+        # Emit each run in this group
+        while IFS= read -r run; do
+            local client=$(echo "$run" | jq -r '.client')
+            local relay=$(echo "$run" | jq -r '.relay')
+            local version=$(echo "$run" | jq -r '.version')
+            local mode=$(echo "$run" | jq -r '.mode')
+            local status=$(echo "$run" | jq -r '.status')
+            local classification=$(echo "$run" | jq -r '.classification')
+
+            local log_file="$RESULTS_DIR/${client}_to_${relay}_${mode}.log"
+            local test_display
+
+            # Build tooltip for version badge
+            local version_tooltip
+            case "$classification" in
+                at)    version_tooltip="At interop target ($TARGET_VERSION)" ;;
+                ahead) version_tooltip="Ahead of interop target ($TARGET_VERSION)" ;;
+                behind) version_tooltip="Behind interop target ($TARGET_VERSION)" ;;
+                *)     version_tooltip="" ;;
+            esac
+
+            if parse_tap_file "$log_file" && [ "$TAP_TOTAL" -gt 0 ]; then
+                local passed=$TAP_PASSED
+                local failed=$TAP_FAILED
+                local total=$TAP_TOTAL
+
+                if [ "$failed" -eq 0 ]; then
+                    test_display="<span class=\"status pass\">$passed/$total</span>"
+                elif [ "$passed" -eq 0 ]; then
+                    test_display="<span class=\"status fail\">$passed/$total</span>"
+                else
+                    test_display="<span class=\"status partial\">$passed/$total</span>"
+                fi
             else
-                test_display="<span class=\"status partial\">$passed/$total</span>"
+                test_display="<span class=\"status $status\">${status^^}</span>"
             fi
-        else
-            test_display="<span class=\"status $status\">${status^^}</span>"
-        fi
-        
-        echo "<tr><td>$client</td><td>$relay</td><td><code>$version</code></td><td>$mode</td><td>$test_display</td><td><a href=\"${client}_to_${relay}_${mode}.log\">log</a></td></tr>" >> "$OUTPUT_FILE"
-    done < <(jq -c '.runs[]' "$SUMMARY_FILE")
+
+            echo "<tr><td>$client</td><td>$relay</td><td><code class=\"$classification\" title=\"$version_tooltip\">$version</code></td><td>$mode</td><td>$test_display</td><td><a href=\"${client}_to_${relay}_${mode}.log\">log</a></td></tr>" >> "$OUTPUT_FILE"
+        done < <(jq -c --arg cl "$class" \
+            '.target_version as $tv |
+            ($tv | ltrimstr("draft-") | tonumber) as $tn |
+            .runs[] |
+            . + {classification: (.classification // (
+                (.version | ltrimstr("draft-") | tonumber) as $vn |
+                if $vn == $tn then "at"
+                elif $vn > $tn then "ahead"
+                else "behind" end
+            ))} |
+            select(.classification == $cl)' "$SUMMARY_FILE")
+    }
+
+    # Precompute all classifications as JSON array for counting
+    local all_classes
+    all_classes=$(jq "$classify_expr" "$SUMMARY_FILE")
+
+    # Emit groups in order: At Target, Ahead of Target, Behind Target
+    emit_detail_rows "at" "At Target" "$all_classes"
+    emit_detail_rows "ahead" "Ahead of Target" "$all_classes"
+    emit_detail_rows "behind" "Behind Target" "$all_classes"
 
     cat >> "$OUTPUT_FILE" << 'FOOTER'
             </tbody>
