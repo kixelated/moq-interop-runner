@@ -57,10 +57,28 @@ Every test run MUST include:
 2. **Plan**: `1..N` where N is the number of test points
 3. **Test points**: One per test case, `ok N - name` or `not ok N - name`
 
+### Run-Level Comments
+
+TAP comment lines (starting with `#`) can appear anywhere in the output and are ignored by harnesses but visible to humans reading the output directly. Test clients SHOULD include identifying information about the test run as comments between the version line and the plan:
+
+```tap
+TAP version 14
+# moq-test-client v0.1.0
+# Relay: https://relay.example.com:4443
+# Draft: draft-14
+1..3
+ok 1 - setup-only
+...
+```
+
+This preserves the human-readable "header" without affecting test counts or harness behavior.
+
 ### Minimal Example
 
 ```tap
 TAP version 14
+# moq-test-client v0.1.0
+# Relay: https://relay.example.com:4443
 1..3
 ok 1 - setup-only
 ok 2 - announce-only

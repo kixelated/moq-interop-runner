@@ -190,8 +190,10 @@ def main():
 
     tests_to_run = get_tests(args.test)  # specific test or all
 
-    # TAP header
+    # TAP header and run-level comments
     print("TAP version 14")
+    print(f"# {CLIENT_NAME} v{CLIENT_VERSION}")
+    print(f"# Relay: {args.relay_url}")
     print(f"1..{len(tests_to_run)}")
 
     failed = 0
