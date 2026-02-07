@@ -180,41 +180,58 @@ def test_announce_subscribe(relay_url):
 
 ## Output Formatting
 
+Test clients output [TAP version 14](https://testanything.org/tap-version-14-specification.html). See [TEST-CLIENT-INTERFACE.md](./TEST-CLIENT-INTERFACE.md) for the full specification.
+
 ### Main Entry Point
 
 ```python
 def main():
     args = parse_args()  # or parse environment variables
-    
+
     tests_to_run = get_tests(args.test)  # specific test or all
-    results = []
-    
-    for test in tests_to_run:
+
+    # TAP header
+    print("TAP version 14")
+    print(f"1..{len(tests_to_run)}")
+
+    failed = 0
+    for i, test in enumerate(tests_to_run, 1):
         result = run_test(test, args.relay_url)
-        print(format_result(result))
-        results.append(result)
-    
-    # Summary
-    passed = sum(1 for r in results if r.passed)
-    failed = len(results) - passed
-    print(f"\nResults: {passed} passed, {failed} failed")
-    
-    # Machine-parseable result
-    if failed == 0:
-        print("MOQT_TEST_RESULT: SUCCESS")
-        sys.exit(0)
-    else:
-        print("MOQT_TEST_RESULT: FAILURE")
-        sys.exit(1)
+        print(format_tap_result(i, result))
+        if not result.passed:
+            failed += 1
+
+    sys.exit(1 if failed > 0 else 0)
 
 
-def format_result(result):
-    symbol = "✓" if result.passed else "✗"
-    line = f"{symbol} {result.name} ({result.duration_ms} ms)"
+def format_tap_result(number, result):
+    """Format a test result as a TAP test point with optional YAML diagnostics."""
+    status = "ok" if result.passed else "not ok"
+    line = f"{status} {number} - {result.name}"
+
+    # Add SKIP directive if applicable
+    if result.skipped:
+        line += f" # SKIP {result.skip_reason}"
+        return line
+
+    # Add YAML diagnostic block for richer context
+    yaml_lines = []
+    if result.duration_ms is not None:
+        yaml_lines.append(f"  duration_ms: {result.duration_ms}")
     if result.connection_id:
-        line += f" [CID: {result.connection_id}]"
+        yaml_lines.append(f"  connection_id: {result.connection_id}")
     if not result.passed and result.message:
-        line += f"\n  {result.message}"
+        yaml_lines.append(f"  message: \"{result.message}\"")
+    if result.expected:
+        yaml_lines.append(f"  expected: {result.expected}")
+    if result.received:
+        yaml_lines.append(f"  received: {result.received}")
+
+    if yaml_lines:
+        line += "\n  ---\n"
+        line += "\n".join(yaml_lines)
+        line += "\n  ..."
+
     return line
 ```
 
@@ -234,7 +251,7 @@ When `--tls-disable-verify` is set (or `TLS_DISABLE_VERIFY=1`), disable certific
 
 ## Connection ID Extraction
 
-Extract the QUIC connection ID for mlog correlation. This is typically available from your QUIC implementation:
+Extract the QUIC connection ID for mlog correlation and include it in the YAML diagnostic block. This is typically available from your QUIC implementation:
 
 ```python
 # Example with quinn (Rust)
@@ -242,6 +259,27 @@ let cid = connection.stable_id();
 
 # Example with aioquic (Python)  
 cid = connection._quic.host_cid.hex()
+```
+
+In TAP output, the connection ID appears in the YAML diagnostics:
+
+```tap
+ok 1 - setup-only
+  ---
+  duration_ms: 24
+  connection_id: 84ee7793841adcadd926a1baf1c677cc
+  ...
+```
+
+For multi-connection tests, include both IDs:
+
+```tap
+ok 2 - announce-subscribe
+  ---
+  duration_ms: 156
+  publisher_connection_id: abc12345
+  subscriber_connection_id: def67890
+  ...
 ```
 
 ## Docker Considerations
