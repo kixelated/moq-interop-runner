@@ -1,12 +1,11 @@
 #!/bin/bash
 # run-interop-tests.sh - Run MoQT interop tests with client×relay version matching
 #
-# Implements the version-matching algorithm:
-# 1. Phase 1: Test all (client, relay) pairs at current target version
-# 2. Phase 2: Fallback for "behind" implementations (max version < target)
-# 3. Phase 3: Forward tests for "ahead" implementations (have newer versions)
-#
-# Each (client, relay) pair is only tested once, at the newest common version.
+# For each (client, relay) pair, selects a single version to test:
+#   1. Use the target version if both sides support it
+#   2. Otherwise, use the highest shared version below the target
+#   3. Otherwise, use the lowest shared version above the target
+#   4. Skip the pair if no shared version exists
 #
 # Exit codes:
 #   0 - All tests passed (or no tests run)
@@ -119,53 +118,38 @@ get_impls_with_role() {
     jq -r --arg role "$role" '.implementations | to_entries[] | select(.value.roles[$role] != null) | .key' "$CONFIG_FILE"
 }
 
-# Check if implementation supports a version
-supports_version() {
-    local impl="$1"
-    local version="$2"
-    jq -e --arg impl "$impl" --arg ver "$version" '.implementations[$impl].draft_versions | index($ver)' "$CONFIG_FILE" > /dev/null 2>&1
-}
-
-# Get newest version for an implementation
-get_newest_version() {
-    local impl="$1"
-    # Sort versions and get the first (newest) - assumes draft-NN format
-    jq -r --arg impl "$impl" '.implementations[$impl].draft_versions | sort_by(. | ltrimstr("draft-") | tonumber) | reverse | .[0]' "$CONFIG_FILE"
-}
-
-# Compare versions: returns "gt" if v1 > v2, "lt" if v1 < v2, "eq" if equal
-# NOTE: Currently unused - retained for potential future version negotiation logic
-compare_versions() {
-    local v1="$1"
-    local v2="$2"
-    local n1=$(echo "$v1" | sed 's/draft-//')
-    local n2=$(echo "$v2" | sed 's/draft-//')
-    if [ "$n1" -gt "$n2" ]; then echo "gt"
-    elif [ "$n1" -lt "$n2" ]; then echo "lt"
-    else echo "eq"
-    fi
-}
-
-# Track tested pairs (file-based for simplicity)
-TESTED_PAIRS_FILE="$RESULTS_DIR/.tested_pairs"
-touch "$TESTED_PAIRS_FILE"
-
-# Cleanup handler to remove temporary files on exit
-cleanup() {
-    rm -f "$TESTED_PAIRS_FILE"
-}
-trap cleanup EXIT INT TERM
-
-is_pair_tested() {
+# Select the best version to test a (client, relay) pair.
+# Returns the version string on stdout, or empty string if no shared version.
+#
+# Priority:
+#   1. Target version (if both support it)
+#   2. Highest shared version below target
+#   3. Lowest shared version above target
+select_version() {
     local client="$1"
     local relay="$2"
-    grep -q "^${client}:${relay}$" "$TESTED_PAIRS_FILE" 2>/dev/null
-}
-
-mark_pair_tested() {
-    local client="$1"
-    local relay="$2"
-    echo "${client}:${relay}" >> "$TESTED_PAIRS_FILE"
+    local target="$3"
+    jq -r --arg client "$client" --arg relay "$relay" --arg target "$target" '
+        (.implementations[$client].draft_versions) as $cv |
+        (.implementations[$relay].draft_versions) as $rv |
+        ($target | ltrimstr("draft-") | tonumber) as $tnum |
+        # Find shared versions
+        [$cv[] | select(. as $v | $rv | index($v))] |
+        if length == 0 then ""
+        # Prefer target if shared
+        elif index($target) then $target
+        else
+            # Split into below and above target
+            ([ .[] | select((ltrimstr("draft-") | tonumber) < $tnum) ]
+                | sort_by(ltrimstr("draft-") | tonumber) | reverse) as $below |
+            ([ .[] | select((ltrimstr("draft-") | tonumber) > $tnum) ]
+                | sort_by(ltrimstr("draft-") | tonumber)) as $above |
+            if ($below | length) > 0 then $below[0]   # highest below target
+            elif ($above | length) > 0 then $above[0]  # lowest above target
+            else ""
+            end
+        end
+    ' "$CONFIG_FILE"
 }
 
 #############################################################################
@@ -258,15 +242,6 @@ test_pair() {
     local relay="$2"
     local version="$3"
 
-    # Skip if already tested
-    if is_pair_tested "$client" "$relay"; then
-        echo -e "${YELLOW}  Skipping $client → $relay (already tested)${NC}"
-        return
-    fi
-
-    mark_pair_tested "$client" "$relay"
-
-    # Get relay endpoints
     # Docker test
     if [ "$REMOTE_ONLY" != true ]; then
         local docker_image=$(jq -r --arg relay "$relay" '.implementations[$relay].roles.relay.docker.image // empty' "$CONFIG_FILE")
@@ -330,111 +305,22 @@ echo -e "${BLUE}Relays:${NC} ${RELAYS_ARR[*]}"
 echo ""
 
 #############################################################################
-# Phase 1: Primary tests at target version
+# Version Selection and Test Execution
 #############################################################################
 
-echo -e "${CYAN}════════════════════════════════════════════════════════════════${NC}"
-echo -e "${CYAN}Phase 1: Primary tests at $TARGET_VERSION${NC}"
-echo -e "${CYAN}════════════════════════════════════════════════════════════════${NC}"
-echo ""
-
 for client in "${CLIENTS_ARR[@]}"; do
-    if ! supports_version "$client" "$TARGET_VERSION"; then
-        continue
-    fi
-
     for relay in "${RELAYS_ARR[@]}"; do
-        if ! supports_version "$relay" "$TARGET_VERSION"; then
+        version=$(select_version "$client" "$relay" "$TARGET_VERSION")
+
+        if [ -z "$version" ]; then
+            echo -e "${YELLOW}Skipping $client → $relay (no shared version)${NC}"
             continue
         fi
 
-        echo -e "${YELLOW}Testing: $client → $relay (at $TARGET_VERSION)${NC}"
-        test_pair "$client" "$relay" "$TARGET_VERSION"
+        echo -e "${YELLOW}Testing: $client → $relay (at $version)${NC}"
+        test_pair "$client" "$relay" "$version"
     done
 done
-
-#############################################################################
-# Phase 2: Fallback for "behind" implementations
-#############################################################################
-
-echo -e "${CYAN}════════════════════════════════════════════════════════════════${NC}"
-echo -e "${CYAN}Phase 2: Fallback for implementations behind $TARGET_VERSION${NC}"
-echo -e "${CYAN}════════════════════════════════════════════════════════════════${NC}"
-echo ""
-
-target_num=$(echo "$TARGET_VERSION" | sed 's/draft-//')
-
-# Find relays that are behind
-for relay in "${RELAYS_ARR[@]}"; do
-    relay_newest=$(get_newest_version "$relay")
-    relay_num=$(echo "$relay_newest" | sed 's/draft-//')
-
-    if [ "$relay_num" -lt "$target_num" ]; then
-        echo -e "${YELLOW}Relay $relay is behind (newest: $relay_newest)${NC}"
-
-        # Find clients that support this relay's newest version
-        for client in "${CLIENTS_ARR[@]}"; do
-            if supports_version "$client" "$relay_newest"; then
-                echo -e "  Found compatible client: $client"
-                test_pair "$client" "$relay" "$relay_newest"
-            fi
-        done
-    fi
-done
-
-# Find clients that are behind
-for client in "${CLIENTS_ARR[@]}"; do
-    client_newest=$(get_newest_version "$client")
-    client_num=$(echo "$client_newest" | sed 's/draft-//')
-
-    if [ "$client_num" -lt "$target_num" ]; then
-        echo -e "${YELLOW}Client $client is behind (newest: $client_newest)${NC}"
-
-        # Find relays that support this client's newest version
-        for relay in "${RELAYS_ARR[@]}"; do
-            if supports_version "$relay" "$client_newest"; then
-                echo -e "  Found compatible relay: $relay"
-                test_pair "$client" "$relay" "$client_newest"
-            fi
-        done
-    fi
-done
-
-#############################################################################
-# Phase 3: Forward tests for "ahead" implementations
-#############################################################################
-
-echo -e "${CYAN}════════════════════════════════════════════════════════════════${NC}"
-echo -e "${CYAN}Phase 3: Forward tests for implementations ahead of $TARGET_VERSION${NC}"
-echo -e "${CYAN}════════════════════════════════════════════════════════════════${NC}"
-echo ""
-
-# Collect all versions newer than target
-AHEAD_VERSIONS_ARR=()
-while IFS= read -r line; do
-    [ -n "$line" ] && AHEAD_VERSIONS_ARR+=("$line")
-done < <(jq -r "[.implementations[].draft_versions[]] | unique | .[] | select((. | ltrimstr(\"draft-\") | tonumber) > $target_num)" "$CONFIG_FILE" | sort -t'-' -k2 -rn)
-
-# Guard against empty array with set -u
-if [ ${#AHEAD_VERSIONS_ARR[@]} -gt 0 ]; then
-    for version in "${AHEAD_VERSIONS_ARR[@]}"; do
-        echo -e "${YELLOW}Testing at $version (ahead of target)${NC}"
-
-        for client in "${CLIENTS_ARR[@]}"; do
-            if ! supports_version "$client" "$version"; then
-                continue
-            fi
-
-            for relay in "${RELAYS_ARR[@]}"; do
-                if ! supports_version "$relay" "$version"; then
-                    continue
-                fi
-
-                test_pair "$client" "$relay" "$version"
-            done
-        done
-    done
-fi
 
 #############################################################################
 # Summary
@@ -450,8 +336,6 @@ echo -e "${RED}Failed:  $FAILED${NC}"
 echo ""
 echo -e "Results saved to: $RESULTS_DIR"
 echo -e "Summary JSON: $SUMMARY_FILE"
-
-# Note: TESTED_PAIRS_FILE cleanup is handled by trap
 
 # Exit with failure if any tests failed
 [ $FAILED -gt 0 ] && exit 1
