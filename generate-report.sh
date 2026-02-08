@@ -521,7 +521,9 @@ else
 fi
 
 # Open index in browser on macOS
-if command -v open &> /dev/null; then
+# Note: Linux has /usr/bin/open (openvt) which is not a browser launcher and
+# fails in headless CI environments, so restrict this to macOS only.
+if [[ "$(uname)" == "Darwin" ]] && command -v open &> /dev/null; then
     echo "Opening in browser..."
     open "$RESULTS_BASE/index.html"
 fi
