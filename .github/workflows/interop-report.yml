@@ -34,6 +34,7 @@ jobs:
 
       - name: Run interop tests
         working-directory: main
+        continue-on-error: true  # Some tests may fail — publish results regardless
         run: make interop-remote
 
       - name: Publish results
