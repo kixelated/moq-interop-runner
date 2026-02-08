@@ -47,28 +47,34 @@ jobs:
 
           TIMESTAMP=$(basename "$NEW_RESULT")
           DEST="gh-pages-site/results/$TIMESTAMP"
-          
+
           mkdir -p "$DEST"
           cp -r "$NEW_RESULT/"* "$DEST/"
-          
-          # Generate index
+
+          # Copy mlogs into results if they exist (produced by Docker-based tests)
+          if [ -d main/mlog ] && [ "$(ls -A main/mlog/client 2>/dev/null)" ]; then
+            mkdir -p "$DEST/mlog"
+            cp -r main/mlog/* "$DEST/mlog/"
+          fi
+
+          # Generate index and detail reports for all runs
           cp main/generate-report.sh gh-pages-site/
           cp -r main/lib gh-pages-site/
-          
+
           cd gh-pages-site
-          ./generate-report.sh --index
-          
+          ./generate-report.sh
+
           mv results/index.html index.html
           # Safer replacement: only modify hrefs that look like dates (YYYY-)
           sed -i 's|href="\([0-9]\{4\}-\)|href="results/\1|g' index.html
-          
+
           rm generate-report.sh
           rm -rf lib
-          
+
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          
-          git add results/"$TIMESTAMP" index.html
+
+          git add .
           git commit -m "Add interop results for $TIMESTAMP"
           git push origin gh-pages
 
