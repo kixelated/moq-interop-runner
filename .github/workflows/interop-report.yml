@@ -5,8 +5,13 @@ on:
     - cron: '0 0 * * *'  # Daily at midnight UTC
   workflow_dispatch:
 
+
 permissions:
   contents: write
+
+concurrency:
+  group: interop-report
+  cancel-in-progress: false
 
 jobs:
   test-and-publish:
@@ -23,11 +28,6 @@ jobs:
           ref: gh-pages
           path: gh-pages-site
 
-      - name: Install dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y jq
-
       - name: Build test client
         working-directory: main
         run: ./builds/moq-rs/build.sh --target client
@@ -38,7 +38,12 @@ jobs:
 
       - name: Publish results
         run: |
-          NEW_RESULT=$(ls -td main/results/*/ | head -1)
+          NEW_RESULT=$(ls -td main/results/*/ 2>/dev/null | head -1)
+          if [ -z "$NEW_RESULT" ]; then
+            echo "No results produced — skipping publish"
+            exit 0
+          fi
+
           TIMESTAMP=$(basename "$NEW_RESULT")
           DEST="gh-pages-site/results/$TIMESTAMP"
           
@@ -53,7 +58,8 @@ jobs:
           ./generate-report.sh --index
           
           mv results/index.html index.html
-          sed -i 's|href="|href="results/|g' index.html
+          # Safer replacement: only modify hrefs that look like dates (YYYY-)
+          sed -i 's|href="\([0-9]\{4\}-\)|href="results/\1|g' index.html
           
           rm generate-report.sh
           rm -rf lib
