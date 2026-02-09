@@ -51,7 +51,7 @@
           "docker": {
             "image": "moxygen-interop:latest",
             "build": {
-              "dockerfile": "adapters/moxygen/Dockerfile",
+              "dockerfile": "adapters/moxygen/Dockerfile.relay",
               "context": "adapters/moxygen"
             },
             "upstream_image": "ghcr.io/facebookexperimental/moqrelay:latest-amd64",

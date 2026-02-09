@@ -28,14 +28,22 @@ jobs:
           ref: gh-pages
           path: gh-pages-site
 
-      - name: Build test client
+      - name: Build test clients and relays (from source)
         working-directory: main
-        run: ./builds/moq-rs/build.sh --target client
+        run: ./builds/moq-rs/build.sh
+
+      - name: Build test clients and relays (with adapters)
+        working-directory: main
+        run: make build-adapters
+
+      - name: Generate TLS certificates
+        working-directory: main
+        run: ./generate-certs.sh ./certs
 
       - name: Run interop tests
         working-directory: main
         continue-on-error: true  # Some tests may fail — publish results regardless
-        run: make interop-remote
+        run: make interop-all
 
       - name: Publish results
         run: |

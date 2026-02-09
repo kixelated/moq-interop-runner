@@ -15,7 +15,7 @@
 .PHONY: test test-verbose test-single test-external clean mlog-clean certs \
         interop-all interop-docker interop-remote interop-relay interop-list \
         relay-start relay-stop logs logs-relay logs-client \
-        build-moxygen-adapter build-impl build-moq-rs report help _ensure-certs
+        build-adapters build-moxygen-adapter build-impl build-moq-rs report help _ensure-certs
 
 #############################################################################
 # Image Configuration
@@ -151,9 +151,21 @@ interop-list:
 # to conform to the interop testing conventions (e.g., /certs mount point).
 #############################################################################
 
+# Build all adapter images (reads build info from implementations.json)
+build-adapters:
+	@jq -r '.implementations | to_entries[] | .value.roles | to_entries[]? | \
+		select(.value.docker.build.dockerfile != null) | \
+		select(.value.docker.build.dockerfile | startswith("adapters/")) | \
+		"\(.value.docker.image)|\(.value.docker.build.dockerfile)|\(.value.docker.build.context)"' \
+		implementations.json | while IFS='|' read -r image dockerfile context; do \
+			echo "Building adapter: $$image"; \
+			docker build -t "$$image" -f "$$dockerfile" "$$context"; \
+		done
+
+# Build individual adapter (kept for convenience / backward compatibility)
 build-moxygen-adapter:
 	@echo "Building moxygen adapter image..."
-	docker build -t moxygen-interop:latest -f adapters/moxygen/Dockerfile adapters/moxygen/
+	docker build -t moxygen-interop:latest -f adapters/moxygen/Dockerfile.relay adapters/moxygen/
 
 #############################################################################
 # Source Builds
@@ -217,8 +229,9 @@ help:
 	@echo "  test-single           Run single test: make test-single TESTCASE=setup-only"
 	@echo "  test-external         Test external relay: make test-external RELAY_URL=https://..."
 	@echo ""
-	@echo "Building from Source (see builds/README.md):"
-	@echo "  build-impl            Build implementation: make build-impl IMPL=moq-rs"
+	@echo "Building Images:"
+	@echo "  build-adapters        Build all adapter images"
+	@echo "  build-impl            Build from source: make build-impl IMPL=moq-rs"
 	@echo "  build-moq-rs          Convenience target for moq-rs"
 	@echo ""
 	@echo "  BUILD_ARGS examples:"

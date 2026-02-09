@@ -9,7 +9,7 @@
 # (cert.pem/priv.key) instead of the upstream defaults (certificate.pem/certificate.key).
 #
 # Build:
-#   docker build -t moxygen-interop:latest -f adapters/moxygen/Dockerfile adapters/moxygen/
+#   docker build -t moxygen-interop:latest -f adapters/moxygen/Dockerfile.relay adapters/moxygen/
 #
 # Usage:
 #   docker run -v ./certs:/certs -p 4443:4443/udp moxygen-interop:latest
