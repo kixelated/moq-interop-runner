@@ -26,10 +26,11 @@ openssl req -x509 -newkey rsa:4096 \
     -subj "/CN=localhost" \
     -addext "subjectAltName=DNS:localhost,DNS:relay,DNS:moq-relay,IP:127.0.0.1"
 
-# Restrict private key permissions (owner read-only)
-chmod 600 "$CERTS_DIR/priv.key"
+# These are ephemeral self-signed test certs, not production secrets.
+# Use 644 so Docker containers running as a different UID can read them.
+chmod 644 "$CERTS_DIR/priv.key"
 chmod 644 "$CERTS_DIR/cert.pem"
 
 echo "Generated certificates in $CERTS_DIR:"
 echo "  - $CERTS_DIR/cert.pem (644)"
-echo "  - $CERTS_DIR/priv.key (600)"
+echo "  - $CERTS_DIR/priv.key (644)"

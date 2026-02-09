@@ -12,6 +12,8 @@
 # For local Docker-based testing, you need to provide images.
 # See IMPLEMENTATIONS.md for how to register your implementation.
 
+SHELL := /bin/bash
+
 .PHONY: test test-verbose test-single test-external clean mlog-clean certs \
         interop-all interop-docker interop-remote interop-relay interop-list \
         relay-start relay-stop logs logs-relay logs-client \
@@ -153,14 +155,10 @@ interop-list:
 
 # Build all adapter images (reads build info from implementations.json)
 build-adapters:
-	@jq -r '.implementations | to_entries[] | .value.roles | to_entries[]? | \
-		select(.value.docker.build.dockerfile != null) | \
-		select(.value.docker.build.dockerfile | startswith("adapters/")) | \
-		"\(.value.docker.image)|\(.value.docker.build.dockerfile)|\(.value.docker.build.context)"' \
-		implementations.json | while IFS='|' read -r image dockerfile context; do \
-			echo "Building adapter: $$image"; \
-			docker build -t "$$image" -f "$$dockerfile" "$$context"; \
-		done
+	@set -o pipefail; jq -r '.implementations | to_entries[] | .value.roles | to_entries[]? | select(.value.docker.build.dockerfile != null) | select(.value.docker.build.dockerfile | startswith("adapters/")) | "\(.value.docker.image)|\(.value.docker.build.dockerfile)|\(.value.docker.build.context)"' implementations.json | while IFS='|' read -r image dockerfile context; do \
+		echo "Building adapter: $$image"; \
+		docker build -t "$$image" -f "$$dockerfile" "$$context"; \
+	done
 
 # Build individual adapter (kept for convenience / backward compatibility)
 build-moxygen-adapter:
