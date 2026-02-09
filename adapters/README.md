@@ -73,14 +73,55 @@ EXPOSE 4443/udp
 
 ## Adding an Adapter
 
+### Requirements
+
+Any approach is valid as long as the resulting image(s) satisfy the [Relay Conventions](#relay-conventions) and/or [Client Conventions](#client-conventions) above. Register each image in `implementations.json` with a `build` section so `make build-adapters` can discover it.
+
+The steps are always:
+
 1. Create a directory under `adapters/` matching the implementation name
-2. Create a Dockerfile that inherits from the upstream image
+2. Add one or more Dockerfiles that inherit from the upstream image
 3. Map environment variables or add wrapper scripts as needed
-4. Register the adapter in `implementations.json` with a `build` section pointing to your Dockerfile
+4. Register in `implementations.json` with a `build.dockerfile` path starting with `adapters/`
 
-The `build.dockerfile` path in `implementations.json` is what `make build-adapters` uses to discover and build adapter images. Use `Dockerfile.relay` and `Dockerfile.client` to name your adapter Dockerfiles by role.
+### Choose an approach
 
-### Relay adapter registration
+| Approach | When to use | Dockerfiles |
+|----------|-------------|-------------|
+| **[Single-role adapters](#single-role-adapters)** | Upstream publishes separate relay and client images | One `Dockerfile.relay` and/or `Dockerfile.client` per role |
+| **[Combined image — separate Dockerfiles](#option-a-separate-adapter-dockerfiles-per-role)** | Upstream ships one image with both binaries; you want per-role control | One `Dockerfile.relay` + `Dockerfile.client`, both `FROM` the same upstream |
+| **[Combined image — dispatch shim](#option-b-entrypoint-dispatch-shim)** | Upstream ships one image with both binaries; you want the simplest adapter | One `Dockerfile` + an `entrypoint.sh` that switches on `MOQT_ROLE` |
+
+These are common patterns, not an exhaustive list — anything that produces convention-compliant images will work.
+
+---
+
+### Single-role adapters
+
+The most common case: the upstream image serves a single role and just needs convention mapping.
+
+**Relay example** — map certificate paths:
+
+```dockerfile
+# Dockerfile.relay
+FROM ghcr.io/example/moq-relay:latest
+
+ENV CERT_FILE=/certs/cert.pem
+ENV KEY_FILE=/certs/priv.key
+ENV MOQ_PORT=4443
+```
+
+**Client example** — map environment variable names:
+
+```dockerfile
+# Dockerfile.client
+FROM ghcr.io/example/moq-test-client:latest
+
+# Map interop runner conventions to upstream env vars
+ENTRYPOINT ["sh", "-c", "TARGET_URL=$RELAY_URL SKIP_TLS_VERIFY=$TLS_DISABLE_VERIFY exec /usr/local/bin/moq-test-client"]
+```
+
+**Registration** — each role gets its own entry:
 
 ```json
 "your-impl": {
@@ -94,16 +135,7 @@ The `build.dockerfile` path in `implementations.json` is what `make build-adapte
         },
         "upstream_image": "original-image:latest"
       }
-    }
-  }
-}
-```
-
-### Client adapter registration
-
-```json
-"your-impl": {
-  "roles": {
+    },
     "client": {
       "docker": {
         "image": "your-impl-test-client:latest",
@@ -118,20 +150,15 @@ The `build.dockerfile` path in `implementations.json` is what `make build-adapte
 }
 ```
 
-### Example: Client Adapter
-
-If an implementation publishes a test client image that uses `TARGET_URL` instead of `RELAY_URL` and `SKIP_TLS_VERIFY` instead of `TLS_DISABLE_VERIFY`:
-
-```dockerfile
-FROM ghcr.io/example/moq-test-client:latest
-
-# Map interop runner conventions to upstream env vars
-ENTRYPOINT ["sh", "-c", "TARGET_URL=$RELAY_URL SKIP_TLS_VERIFY=$TLS_DISABLE_VERIFY exec /usr/local/bin/moq-test-client"]
-```
+---
 
 ### Combined relay+client images
 
-Some implementations ship a single Docker image that contains both the relay and the test client, selecting the role via a command or environment variable. This is fine — just register it under both roles with separate adapter Dockerfiles that set the appropriate entrypoint:
+Some implementations ship a single Docker image containing both the relay and a test client binary. There are two ways to adapt these.
+
+#### Option A: Separate adapter Dockerfiles per role
+
+Thin Dockerfiles that each `FROM` the same upstream image and set the appropriate entrypoint. Use this when you need different environment setup or dependencies per role.
 
 ```dockerfile
 # Dockerfile.relay
@@ -145,7 +172,7 @@ FROM ghcr.io/example/moq-combined:latest
 ENTRYPOINT ["moq-test-client"]
 ```
 
-Each adapter produces a separate tagged image, so the interop runner can use them independently:
+Each produces a separate tagged image:
 
 ```json
 "your-impl": {
@@ -172,7 +199,75 @@ Each adapter produces a separate tagged image, so the interop runner can use the
 }
 ```
 
-Note that even though the upstream image is shared, the interop runner needs separate image tags for each role because relays and clients have fundamentally different runtime behavior (long-running server vs run-and-exit test harness). The thin adapter Dockerfiles handle this by setting the appropriate entrypoint for each role.
+#### Option B: Entrypoint dispatch shim
+
+A single adapter with a dispatch script that switches on `MOQT_ROLE`. This is a good fit when the upstream image already contains both binaries and you want the simplest possible adapter — for example, an implementation whose main Docker image is designed for relay deployment but also happens to include a test client binary.
+
+```dockerfile
+FROM ghcr.io/example/moq-combined:latest
+COPY entrypoint.sh /entrypoint.sh
+RUN chmod +x /entrypoint.sh
+ENTRYPOINT ["/entrypoint.sh"]
+```
+
+Example dispatch script:
+
+```bash
+#!/bin/sh
+# entrypoint.sh — dispatches based on MOQT_ROLE
+# Adapt binary names and flags to match your implementation.
+set -e
+
+MOQT_PORT="${MOQT_PORT:-4443}"
+MOQT_CERT="${MOQT_CERT:-/certs/cert.pem}"
+MOQT_KEY="${MOQT_KEY:-/certs/priv.key}"
+
+case "$MOQT_ROLE" in
+  relay)
+    # Replace with your relay binary and flags
+    exec your-relay-binary --cert "$MOQT_CERT" --key "$MOQT_KEY" --port "$MOQT_PORT"
+    ;;
+  client)
+    # Replace with your test client binary; forward TESTCASE and TLS_DISABLE_VERIFY
+    exec your-test-client --url "$RELAY_URL" \
+      ${TESTCASE:+--test "$TESTCASE"} \
+      ${TLS_DISABLE_VERIFY:+--skip-verify}
+    ;;
+  *)
+    echo "Unknown role: $MOQT_ROLE" >&2
+    exit 127
+    ;;
+esac
+```
+
+The relay defaults match the interop runner's conventions; the client branch should forward `TESTCASE` and `TLS_DISABLE_VERIFY` as appropriate for your binary's CLI.
+
+Register the single image under both roles:
+
+```json
+"your-impl": {
+  "roles": {
+    "relay": {
+      "docker": {
+        "image": "your-impl-interop:latest",
+        "build": {
+          "dockerfile": "adapters/your-impl/Dockerfile",
+          "context": "adapters/your-impl"
+        }
+      }
+    },
+    "client": {
+      "docker": {
+        "image": "your-impl-interop:latest",
+        "build": {
+          "dockerfile": "adapters/your-impl/Dockerfile",
+          "context": "adapters/your-impl"
+        }
+      }
+    }
+  }
+}
+```
 
 ## Building Adapters
 

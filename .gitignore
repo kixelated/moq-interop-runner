@@ -17,3 +17,6 @@ builds/*/.last-build.json
 # Extra CA certificates for TLS inspection (environment-specific)
 extra-ca.pem
 builds/*/extra-ca.pem
+
+# Local planning notes
+.plan/
