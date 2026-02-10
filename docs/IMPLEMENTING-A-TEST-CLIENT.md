@@ -1,16 +1,14 @@
 # Implementing a MoQT Test Client
 
+> **This is a how-to guide for test client authors.** If you just want to run existing tests against your relay, see [Getting Started](./GETTING-STARTED.md). For the exact interface specification, see [TEST-CLIENT-INTERFACE.md](./TEST-CLIENT-INTERFACE.md).
+
 This guide explains how to implement a test client for your MoQT stack that's compatible with the moq-interop-runner framework.
 
 ## Why Standardized Test Cases?
 
-Most MoQT implementations already have useful CLI tools - moq-rs has `moq-pub`/`moq-sub`/`moq-clock`, moxygen has `moqflvstreamerclient`/`moqflvreceiverclient`/`moqtest_client`, libquicr has `qclient`, and so on. So why define a new test client interface?
+Most MoQT implementations already have CLI tools (moq-rs has `moq-pub`/`moq-sub`/`moq-clock`, moxygen has `moqtest_client`, etc.), but each exercises different scenarios with different output. The goal here is **multiple implementations of the *same* test cases** — standard identifiers (`setup-only`, `announce-subscribe`, ...) with precise success criteria so we can automate the full client x relay matrix with machine-parseable results instead of ad-hoc commands and manual spreadsheet tracking.
 
-**The goal is multiple implementations of the *same* test cases.** Today, different implementations have different test tools that exercise different scenarios. When we do interop testing (like the manual tests tracked in the MoQ interop matrix spreadsheet), we're often running ad-hoc commands and visually inspecting results. That works, but it doesn't scale.
-
-By aligning on a standard set of test case identifiers (`setup-only`, `announce-subscribe`, etc.) with precise success criteria, any implementation can build a compatible test client. Then we can automate the matrix: run moq-rs's test client against moxygen's relay, moxygen's test client against moq-rs's relay, and so on - with machine-parseable results.
-
-The good news: if you already have a MoQT implementation, building a test client mostly means wiring your existing protocol logic to the scenarios defined in [TEST-CASES.md](./tests/TEST-CASES.md).
+If you already have a MoQT implementation, building a test client mostly means wiring your existing protocol logic to the scenarios defined in [TEST-CASES.md](./tests/TEST-CASES.md).
 
 ## Overview
 

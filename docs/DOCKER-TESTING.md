@@ -1,5 +1,7 @@
 # Docker-Based Interop Testing
 
+> **This covers Docker-based testing workflows.** For public relay testing, see [Getting Started](./GETTING-STARTED.md). `make interop-remote` doesn't need relay images but does require a test client image.
+
 This document describes how to run MoQT interop tests using Docker containers, enabling reproducible testing across different implementations.
 
 ## Quick Start

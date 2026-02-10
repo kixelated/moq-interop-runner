@@ -162,6 +162,8 @@ Note: The moq-rs Dockerfiles and build configuration live in `builds/moq-rs/` in
 
 ## Running Tests
 
+Run `make help` to see all available commands. Common operations:
+
 ```bash
 # List all implementations
 ./run-interop-tests.sh --list

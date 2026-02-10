@@ -1,5 +1,7 @@
 # MoQT Test Client Interface Specification
 
+> **This is reference material.** It defines the exact contract test clients must follow. For a guided walkthrough of building a test client, see [IMPLEMENTING-A-TEST-CLIENT.md](./IMPLEMENTING-A-TEST-CLIENT.md).
+
 This document defines the interface that MoQT test clients MUST implement to be compatible with the moq-interop-runner framework.
 
 ## Command Line Interface

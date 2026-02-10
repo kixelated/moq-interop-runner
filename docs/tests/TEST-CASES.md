@@ -1,5 +1,7 @@
 # MoQT Interoperability Test Cases
 
+> **This is the reference specification for test cases.** To propose new test cases, open a PR against this file. To implement these tests in your MoQT stack, see [IMPLEMENTING-A-TEST-CLIENT.md](../IMPLEMENTING-A-TEST-CLIENT.md).
+
 This document defines interoperability test cases for Media over QUIC Transport (MoQT). These specifications are designed to be implementation-neutral and precise enough that any MoQT implementation can build a compatible test client.
 
 **Protocol Reference**: [draft-ietf-moq-transport-14](https://www.ietf.org/archive/id/draft-ietf-moq-transport-14.html)
@@ -195,7 +197,7 @@ Each test case follows this structure:
 - Subscriber's SUBSCRIBE eventually succeeds (once publisher announces), **OR**
 - Subscriber receives SUBSCRIBE_ERROR (relay doesn't buffer pending subscriptions)
 
-Both outcomes are valid relay behaviors. The test verifies the relay handles this scenario gracefully without crashing or hanging.
+Either outcome is valid; the test checks for graceful handling.
 
 **Timeout**: 3.5 seconds total
 

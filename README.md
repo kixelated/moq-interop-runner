@@ -16,9 +16,11 @@ This project is modeled on the [QUIC Interop Runner](https://github.com/quic-int
 
 **Browser-based implementations (for now).** The current Docker-based flow assumes CLI execution. Browser-only implementations (TypeScript/WebTransport) can't plug in directly today. Playwright-based automation is a potential future direction.
 
-## Prerequisites
+## Getting Started
 
-The following tools are required:
+Start with **[Getting Started](docs/GETTING-STARTED.md)** for a guided walkthrough; run `make help` to discover commands.
+
+## Prerequisites
 
 - **Docker** with buildx support (for building multi-platform images)
 - **jq** (for parsing JSON configuration)
@@ -33,36 +35,20 @@ This project provides:
 - **Test Orchestration** - Scripts to run interop tests across implementation combinations
 - **Test Specifications** (`docs/TEST-SPECIFICATIONS.md`) - Standardized test cases that any implementation can implement
 
-The goal is to enable any MoQT implementation to verify interoperability with other implementations, using a shared set of test specifications.
-
 ## Quick Start
 
-### Test Public Relays
-
-The fastest way to get started is testing against public relay endpoints:
-
 ```bash
-# List registered implementations
+# List registered implementations and their endpoints
 make interop-list
+
+# Build the moq-rs test client (one-time, takes a few minutes)
+make build-moq-rs BUILD_ARGS="--target client"
 
 # Run tests against all public relays
 make interop-remote
-
-# Test a specific implementation
-make interop-relay RELAY=moxygen
 ```
 
-### Test with Docker
-
-For Docker-based testing, you need both a relay image and a test client image. The example below uses moxygen's public relay image and moq-rs's test client (which implements the test cases defined in this framework):
-
-```bash
-# Build moq-rs test client (if you have moq-rs checked out)
-# cd /path/to/moq-rs && docker build -f moq-test-client/docker/Dockerfile.test-client -t moq-test-client:latest .
-
-# Run tests (moxygen relay, moq-rs client)
-make test RELAY_IMAGE=ghcr.io/facebookexperimental/moqrelay:latest CLIENT_IMAGE=moq-test-client:latest
-```
+Filter a single relay: `make interop-remote RELAY=moxygen`. See [Getting Started](docs/GETTING-STARTED.md) for more, or `make help` for all commands.
 
 ## Registered Implementations
 
@@ -77,7 +63,7 @@ make test RELAY_IMAGE=ghcr.io/facebookexperimental/moqrelay:latest CLIENT_IMAGE=
 | imquic | Meetecho | draft-13-14 | relay | `https://lminiero.it:9000` |
 | moq (moq-dev) | Luke Curley | draft-14 | relay | `https://cdn.moq.dev/anon` |
 
-See [IMPLEMENTATIONS.md](./IMPLEMENTATIONS.md) for full details and how to add your implementation.
+This table is a snapshot — run `make interop-list` or see [`implementations.json`](./implementations.json) for the current state. See [IMPLEMENTATIONS.md](./IMPLEMENTATIONS.md) for how to add your implementation.
 
 ## Test Cases
 
@@ -115,30 +101,16 @@ See [docs/tests/TEST-CASES.md](./docs/tests/TEST-CASES.md) for detailed specific
 └─────────────────────┘            └─────────────────────┘
 ```
 
-## Directory Structure
+## Key Files
 
-```
-moq-interop-runner/
-├── implementations.json       # Implementation registry
-├── implementations.schema.json # JSON Schema for validation
-├── IMPLEMENTATIONS.md         # How to add your implementation
-├── run-interop-tests.sh       # Main test orchestration script
-├── Makefile                   # Convenient test targets
-├── docker-compose.test.yml    # Docker Compose for local testing
-├── generate-certs.sh          # TLS certificate generation
-├── generate-report.sh         # HTML report generation
-├── adapters/                  # Adapter Dockerfiles for implementations
-│   └── moxygen/               # Wraps moxygen image with /certs convention
-├── builds/                    # Source-based Docker builds
-│   └── moq-rs/                # Build moq-rs from source
-└── docs/
-    ├── TEST-SPECIFICATIONS.md      # Overview and links to detailed docs
-    ├── TEST-CLIENT-INTERFACE.md    # CLI, env vars, output format spec
-    ├── IMPLEMENTING-A-TEST-CLIENT.md # Guide for test client authors
-    ├── DOCKER-TESTING.md           # Docker-based testing guide
-    └── tests/
-        └── TEST-CASES.md           # Detailed test case specifications
-```
+| Path | Purpose |
+|------|---------|
+| `implementations.json` | Implementation registry (the central config file) |
+| `run-interop-tests.sh` | Main test orchestration script |
+| `Makefile` | All commands — run `make help` to see them |
+| `docs/` | [Getting started](docs/GETTING-STARTED.md), test specs, interface docs |
+| `adapters/` | Thin Docker wrappers for implementations ([README](adapters/README.md)) |
+| `builds/` | Source-based Docker builds ([README](builds/README.md)) |
 
 ## Related Projects
 
