@@ -40,6 +40,28 @@
       }
     },
 
+    "moq-rs-draft-16": {
+      "name": "moq-rs (draft-16)",
+      "organization": "Cloudflare",
+      "repository": "https://github.com/englishm-cloudflare/moq-rs-1",
+      "draft_versions": ["draft-16"],
+      "notes": "Rust implementation. Draft-16 interop branch (WIP, based on https://github.com/cloudflare/moq-rs/pull/131).",
+      "roles": {
+        "relay": {
+          "docker": {
+            "image": "moq-relay-ietf:latest",
+            "notes": "Build: ./builds/moq-rs/build.sh --repo https://github.com/englishm-cloudflare/moq-rs-1 --ref me/draft-16-interop --target relay"
+          }
+        },
+        "client": {
+          "docker": {
+            "image": "moq-test-client:latest",
+            "notes": "Build: ./builds/moq-rs/build.sh --repo https://github.com/englishm-cloudflare/moq-rs-1 --ref me/draft-16-interop --target client"
+          }
+        }
+      }
+    },
+
     "moxygen": {
       "name": "moxygen",
       "organization": "Meta",

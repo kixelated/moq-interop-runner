@@ -4,6 +4,7 @@
 # Usage:
 #   ./build.sh                      # Clone from default ref (main)
 #   ./build.sh --ref feature-branch # Clone specific branch/tag/commit
+#   ./build.sh --repo URL           # Clone from a different repository (fork)
 #   ./build.sh --local ~/git/moq-rs # Use local checkout
 #   ./build.sh --target relay       # Build only relay image
 #   ./build.sh --target client      # Build only client image
@@ -73,6 +74,7 @@ get_runner_commit() {
 REF=""
 LOCAL_PATH=""
 TARGET=""  # empty = build all targets
+CUSTOM_REPO=""  # override REPO_URL
 
 while [[ $# -gt 0 ]]; do
     case $1 in
@@ -81,6 +83,13 @@ while [[ $# -gt 0 ]]; do
                 error "--ref requires a value"
             fi
             REF="$2"
+            shift 2
+            ;;
+        --repo)
+            if [[ -z "${2:-}" ]]; then
+                error "--repo requires a value"
+            fi
+            CUSTOM_REPO="$2"
             shift 2
             ;;
         --local)
@@ -102,6 +111,7 @@ while [[ $# -gt 0 ]]; do
             echo ""
             echo "Options:"
             echo "  --ref REF       Git ref to checkout (branch/tag/commit)"
+            echo "  --repo URL      Clone from a different repository (fork)"
             echo "  --local PATH    Use local checkout instead of cloning"
             echo "  --target NAME   Build only specific target (relay|client)"
             echo "  --help          Show this help"
@@ -109,6 +119,7 @@ while [[ $# -gt 0 ]]; do
             echo "Examples:"
             echo "  $0                           # Clone main branch"
             echo "  $0 --ref v0.5.0              # Clone specific tag"
+            echo "  $0 --repo https://github.com/user/moq-rs --ref branch"
             echo "  $0 --local ~/git/moq-rs      # Use local checkout"
             echo "  $0 --local ~/git/moq-rs --target relay"
             exit 0
@@ -119,9 +130,19 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
+# Apply --repo override if specified
+if [[ -n "$CUSTOM_REPO" ]]; then
+    REPO_URL="$CUSTOM_REPO"
+fi
+
 # Validate: can't specify both --ref and --local
 if [[ -n "$REF" && -n "$LOCAL_PATH" ]]; then
     error "Cannot specify both --ref and --local"
+fi
+
+# Validate: --repo only makes sense with --ref (not --local)
+if [[ -n "$CUSTOM_REPO" && -n "$LOCAL_PATH" ]]; then
+    error "Cannot specify both --repo and --local"
 fi
 
 # Default to cloning if neither specified
@@ -149,8 +170,15 @@ else
     mkdir -p "$SOURCES_DIR"
     
     if [[ -d "$SOURCE_DIR/.git" ]]; then
-        log "Updating existing clone..."
-        git -C "$SOURCE_DIR" fetch origin
+        EXISTING_URL=$(git -C "$SOURCE_DIR" remote get-url origin 2>/dev/null || echo "")
+        if [[ "$EXISTING_URL" != "$REPO_URL" ]]; then
+            log "Repo URL changed ($EXISTING_URL -> $REPO_URL), re-cloning..."
+            rm -rf "$SOURCE_DIR"
+            git clone "$REPO_URL" "$SOURCE_DIR"
+        else
+            log "Updating existing clone..."
+            git -C "$SOURCE_DIR" fetch origin
+        fi
     else
         log "Cloning $REPO_URL..."
         rm -rf "$SOURCE_DIR"
