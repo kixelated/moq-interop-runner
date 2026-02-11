@@ -3,7 +3,7 @@
   "version": "1.1",
   "description": "MoQT implementation registry for interop testing",
 
-  "current_target": "draft-14",
+  "current_target": "draft-16",
 
   "implementations": {
     "moq-rs": {

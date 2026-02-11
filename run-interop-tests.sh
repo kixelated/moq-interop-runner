@@ -130,7 +130,7 @@ fi
 
 # Read target version from config if not specified via CLI
 if [ -z "$TARGET_VERSION" ]; then
-    TARGET_VERSION=$(jq -r '.current_target // "draft-14"' "$CONFIG_FILE")
+    TARGET_VERSION=$(jq -r '.current_target // "draft-16"' "$CONFIG_FILE")
 fi
 
 # Validate target version format
