@@ -118,7 +118,7 @@
       "name": "quiche-moq",
       "organization": "Google",
       "repository": "https://github.com/google/quiche",
-      "draft_versions": ["draft-14"],
+      "draft_versions": ["draft-16"],
       "notes": "C++ implementation",
       "roles": {
         "relay": {
