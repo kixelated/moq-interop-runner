@@ -135,9 +135,9 @@
     "moqtail": {
       "name": "moqtail",
       "organization": "OzU",
-      "repository": "https://github.com/streaming-university/moqtail",
+      "repository": "https://github.com/moqtail/moqtail",
       "draft_versions": ["draft-14"],
-      "notes": "Rust implementation. WebTransport implementation does not support GREASE.",
+      "notes": "Rust implementation.",
       "roles": {
         "relay": {
           "remote": [
